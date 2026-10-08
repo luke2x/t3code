@@ -2366,3 +2366,15 @@ code {
     }
   }
 }
+
+.chat-markdown .math-readable-inline,
+.chat-markdown .math-readable-display {
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+}
+
+.chat-markdown .math-readable-display {
+  display: block;
+  margin-block: 1rem;
+  overflow-x: auto;
+}

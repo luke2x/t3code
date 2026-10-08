@@ -23,14 +23,20 @@ const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
 describe("ClientSettings LaTeX rendering", () => {
   it("renders math by default in new and existing settings", () => {
-    expect(decodeClientSettings({}).latexRenderingEnabled).toBe(true);
-    expect(decodeClientSettings({ chatWidth: "wide" }).latexRenderingEnabled).toBe(true);
+    expect(decodeClientSettings({}).latexRenderingMode).toBe("on");
+    expect(decodeClientSettings({ chatWidth: "wide" }).latexRenderingMode).toBe("on");
   });
 
-  it("preserves opting out when saving and loading preferences", () => {
-    const preference = { latexRenderingEnabled: false };
-    expect(decodeClientSettingsPatch(preference)).toEqual(preference);
-    expect(encodeClientSettings(decodeClientSettings(preference))).toMatchObject(preference);
+  it.each(["off", "readable", "on"])(
+    "preserves the %s mode when saving and loading preferences",
+    (mode) => {
+      const preference = { latexRenderingMode: mode };
+      expect(decodeClientSettingsPatch(preference)).toEqual(preference);
+      expect(encodeClientSettings(decodeClientSettings(preference))).toMatchObject(preference);
+    },
+  );
+  it("rejects unsupported rendering modes", () => {
+    expect(() => decodeClientSettingsPatch({ latexRenderingMode: "other" })).toThrow();
   });
 });
 

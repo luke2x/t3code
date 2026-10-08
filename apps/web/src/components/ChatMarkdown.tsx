@@ -3326,8 +3326,8 @@ function ChatMarkdown({
   extraRemarkPlugins = EMPTY_REMARK_PLUGINS,
   ...props
 }: ChatMarkdownProps) {
-  const mathEnabled = useClientSettings((settings) => settings.latexRenderingEnabled);
-  const mathPlugins = useChatMathPlugins(mathEnabled, text);
+  const mathMode = useClientSettings((settings) => settings.latexRenderingMode);
+  const mathPlugins = useChatMathPlugins(mathMode, text);
   const {
     componentState,
     handleCopy,

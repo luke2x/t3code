@@ -2,7 +2,6 @@ import type { PluggableList } from "unified";
 import rehypeKatex from "rehype-katex";
 import { remarkChatMath } from "@t3tools/shared/markdownMath";
 import { CHAT_MARKDOWN_REHYPE_PLUGINS } from "@t3tools/shared/markdownPipeline";
-import "katex/dist/katex.min.css";
 
 type Root = Parameters<ReturnType<typeof rehypeKatex>>[0];
 type RootContent = Root["children"][number];

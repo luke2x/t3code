@@ -138,6 +138,7 @@ import {
 } from "../ui/number-field";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { Switch } from "../ui/switch";
+import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { ScopedSwitch } from "./ScopedSwitch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
@@ -547,7 +548,9 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Diff colors"]
         : []),
       ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
-      ...(!settings.latexRenderingEnabled ? ["LaTeX rendering"] : []),
+      ...(settings.latexRenderingMode !== DEFAULT_UNIFIED_SETTINGS.latexRenderingMode
+        ? ["LaTeX rendering"]
+        : []),
       ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
         ? ["Panel animations"]
         : []),
@@ -675,7 +678,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.appearanceContrast,
       settings.diffColorScheme,
       settings.chatWidth,
-      settings.latexRenderingEnabled,
+      settings.latexRenderingMode,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
       settings.confirmThreadArchive,
@@ -793,7 +796,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
-      latexRenderingEnabled: DEFAULT_UNIFIED_SETTINGS.latexRenderingEnabled,
+      latexRenderingMode: DEFAULT_UNIFIED_SETTINGS.latexRenderingMode,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
@@ -1461,23 +1464,40 @@ export function AppearanceSettingsPanel() {
         />
         <SettingsRow
           {...searchableSetting("latex-rendering")}
-          description="Render LaTeX equations in web and desktop messages. Turn off to show the source."
+          description="Off keeps the original text. Readable simplifies equations into plain text. On typesets them. Applies to web and desktop."
           resetAction={
-            !settings.latexRenderingEnabled ? (
+            settings.latexRenderingMode !== DEFAULT_UNIFIED_SETTINGS.latexRenderingMode ? (
               <SettingResetButton
                 label="LaTeX rendering"
-                onClick={() => updateSettings({ latexRenderingEnabled: true })}
+                onClick={() =>
+                  updateSettings({
+                    latexRenderingMode: DEFAULT_UNIFIED_SETTINGS.latexRenderingMode,
+                  })
+                }
               />
             ) : null
           }
           control={
-            <Switch
-              checked={settings.latexRenderingEnabled}
-              onCheckedChange={(checked) =>
-                updateSettings({ latexRenderingEnabled: Boolean(checked) })
-              }
-              aria-label="Render LaTeX equations"
-            />
+            <ToggleGroup
+              aria-label="LaTeX rendering mode"
+              value={[settings.latexRenderingMode]}
+              onValueChange={(values) => {
+                const mode = values[0];
+                if (mode === "off" || mode === "readable" || mode === "on") {
+                  updateSettings({ latexRenderingMode: mode });
+                }
+              }}
+            >
+              <ToggleGroupItem value="off" aria-label="Math rendering off">
+                Off
+              </ToggleGroupItem>
+              <ToggleGroupItem value="readable" aria-label="Readable math text">
+                Readable
+              </ToggleGroupItem>
+              <ToggleGroupItem value="on" aria-label="Math rendering on">
+                On
+              </ToggleGroupItem>
+            </ToggleGroup>
           }
         />
       </SettingsSection>

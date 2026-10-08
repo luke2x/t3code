@@ -1,33 +1,42 @@
 import { useEffect, useState } from "react";
+import type { LatexRenderingMode } from "@t3tools/contracts/settings";
 
 type MathPlugins = typeof import("./markdownMath").CHAT_MATH_PLUGINS;
+type ActiveMathMode = Exclude<LatexRenderingMode, "off">;
 
-let loadedPlugins: MathPlugins | undefined;
-let loadingPlugins: Promise<MathPlugins> | undefined;
+const loadedPlugins: Partial<Record<ActiveMathMode, MathPlugins>> = {};
+const loadingPlugins: Partial<Record<ActiveMathMode, Promise<MathPlugins>>> = {};
 
-export function loadChatMathPlugins(): Promise<MathPlugins> {
-  loadingPlugins ??= import("./markdownMath")
+export function loadChatMathPlugins(mode: ActiveMathMode = "on"): Promise<MathPlugins> {
+  loadingPlugins[mode] ??= (
+    mode === "on" ? import("./markdownMathRendered") : import("./markdownMathReadable")
+  )
     .then(({ CHAT_MATH_PLUGINS }) => {
-      loadedPlugins = CHAT_MATH_PLUGINS;
+      loadedPlugins[mode] = CHAT_MATH_PLUGINS;
       return CHAT_MATH_PLUGINS;
     })
     .catch((error: unknown) => {
-      loadingPlugins = undefined;
+      delete loadingPlugins[mode];
       throw error;
     });
-  return loadingPlugins;
+  return loadingPlugins[mode];
 }
 
-/** Leave ordinary messages on the existing pipeline; load math and its fonts once, on demand. */
-export function useChatMathPlugins(enabled: boolean, text: string) {
-  const needed = enabled && (text.includes("\\(") || text.includes("\\[") || text.includes("$$"));
-  const [plugins, setPlugins] = useState(loadedPlugins);
+/** Ordinary messages keep their pipeline. Readable mode does not load typesetting styles or fonts. */
+export function useChatMathPlugins(mode: LatexRenderingMode, text: string) {
+  const needed =
+    mode !== "off" && (text.includes("\\(") || text.includes("\\[") || text.includes("$$"));
+  const [loaded, setLoaded] = useState<{ mode: ActiveMathMode; plugins: MathPlugins }>();
+  const plugins =
+    mode !== "off"
+      ? (loadedPlugins[mode] ?? (loaded?.mode === mode ? loaded.plugins : undefined))
+      : undefined;
   useEffect(() => {
     if (!needed || plugins) return;
     let cancelled = false;
-    void loadChatMathPlugins().then(
+    void loadChatMathPlugins(mode).then(
       (result) => {
-        if (!cancelled) setPlugins(result);
+        if (!cancelled) setLoaded({ mode, plugins: result });
       },
       () => {
         // A failed chunk download leaves the original Markdown readable.
@@ -36,6 +45,6 @@ export function useChatMathPlugins(enabled: boolean, text: string) {
     return () => {
       cancelled = true;
     };
-  }, [needed, plugins]);
+  }, [mode, needed, plugins]);
   return needed ? plugins : undefined;
 }

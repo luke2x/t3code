@@ -25,7 +25,9 @@ vi.mock("./chat/MermaidDiagram", () => ({
   MermaidDiagram: () => <svg aria-label="Diagram" />,
 }));
 vi.mock("../hooks/useTheme", () => ({ useTheme: () => ({ resolvedTheme: "dark" }) }));
-const mathPreference = vi.hoisted(() => ({ latexRenderingEnabled: true }));
+const mathPreference = vi.hoisted(() => ({
+  latexRenderingMode: "on" as "off" | "readable" | "on",
+}));
 vi.mock("../hooks/useSettings", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../hooks/useSettings")>();
   const settings = actual.getClientSettings();
@@ -101,7 +103,35 @@ function codeButton(renderer: ReactTestRenderer, label: string) {
 }
 
 describe("ChatMarkdown math", () => {
-  beforeAll(() => loadChatMathPlugins());
+  beforeAll(() => Promise.all([loadChatMathPlugins(), loadChatMathPlugins("readable")]));
+  it.each([
+    [String.raw`\frac{1}{2}`, "1 / 2"],
+    [String.raw`x^2+b_{12}`, "x^2 + b[12]"],
+    [String.raw`x_a^b`, "x[a]^b"],
+    [String.raw`\int_0^\pi \sin x\,dx=2`, "integral[0 to π]"],
+    [String.raw`\sum_{n=1}^{\infty}\frac{1}{n^2}`, "sum[n = 1 to ∞]"],
+    [String.raw`\lim_{x\to0}\frac{\sin x}{x}=1`, "lim(x → 0)"],
+    [String.raw`x=\frac{-b\pm\sqrt{b^2-4ac}}{2a}`, "sqrt(b^2 − 4 a c)"],
+    [String.raw`\begin{pmatrix}3&8\\-2&6\end{pmatrix}`, "3"],
+    [String.raw`f(x)=\begin{cases}x^2&x\ge0\\-x&x<0\end{cases}`, "cases:\nx^2 if x ≥ 0"],
+  ])("shows readable text for %s and preserves its source when copying", async (tex, expected) => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    try {
+      mathPreference.latexRenderingMode = "readable";
+      await act(async () => root.render(<ChatMarkdown cwd="/tmp/project" text={`\\[${tex}\\]`} />));
+      const readable = container.querySelector(".math-readable-display");
+      expect(readable?.textContent).toContain(expected);
+      expect(container.querySelector(".katex")).toBeNull();
+      expect(container.querySelector("math")).toBeNull();
+      expect(serializeRenderedMarkdownFragment(container)).toContain(tex);
+    } finally {
+      mathPreference.latexRenderingMode = "on";
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
   it("reuses an unchanged equation while surrounding text streams", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const renderMath = vi.spyOn(katex, "renderToString");
@@ -131,17 +161,17 @@ describe("ChatMarkdown math", () => {
     const root = createRoot(container);
     const text = String.raw`Before \(x^2\) after.`;
     try {
-      mathPreference.latexRenderingEnabled = false;
+      mathPreference.latexRenderingMode = "off";
       await act(async () => root.render(<ChatMarkdown cwd="/tmp/project" text={text} />));
       expect(container.querySelector(".katex")).toBeNull();
       expect(container.textContent).toBe("Before (x^2) after.");
-      mathPreference.latexRenderingEnabled = true;
+      mathPreference.latexRenderingMode = "on";
       await act(async () =>
         root.render(<ChatMarkdown cwd="/tmp/project" text={text} parseRawHtml={false} />),
       );
       expect(container.querySelector("msup")?.textContent).toBe("x2");
     } finally {
-      mathPreference.latexRenderingEnabled = true;
+      mathPreference.latexRenderingMode = "on";
       await act(async () => root.unmount());
       vi.unstubAllGlobals();
     }
