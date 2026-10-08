@@ -547,6 +547,7 @@ export function useSettingsRestore(onRestored?: () => void) {
         ? ["Diff colors"]
         : []),
       ...(settings.chatWidth !== DEFAULT_UNIFIED_SETTINGS.chatWidth ? ["Chat width"] : []),
+      ...(!settings.latexRenderingEnabled ? ["LaTeX rendering"] : []),
       ...(settings.panelAnimationDurationMs !== DEFAULT_UNIFIED_SETTINGS.panelAnimationDurationMs
         ? ["Panel animations"]
         : []),
@@ -674,6 +675,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       settings.appearanceContrast,
       settings.diffColorScheme,
       settings.chatWidth,
+      settings.latexRenderingEnabled,
       settings.enableAgentBrowserAccess,
       settings.confirmQuit,
       settings.confirmThreadArchive,
@@ -791,6 +793,7 @@ export function useSettingsRestore(onRestored?: () => void) {
       appearanceContrast: DEFAULT_UNIFIED_SETTINGS.appearanceContrast,
       diffColorScheme: DEFAULT_UNIFIED_SETTINGS.diffColorScheme,
       chatWidth: DEFAULT_UNIFIED_SETTINGS.chatWidth,
+      latexRenderingEnabled: DEFAULT_UNIFIED_SETTINGS.latexRenderingEnabled,
       timestampFormat: DEFAULT_UNIFIED_SETTINGS.timestampFormat,
       notificationMode: DEFAULT_UNIFIED_SETTINGS.notificationMode,
       inAppNotificationsEnabled: DEFAULT_UNIFIED_SETTINGS.inAppNotificationsEnabled,
@@ -1454,6 +1457,27 @@ export function AppearanceSettingsPanel() {
                 </SelectPopup>
               </Select>
             </div>
+          }
+        />
+        <SettingsRow
+          {...searchableSetting("latex-rendering")}
+          description="Render LaTeX equations in web and desktop messages. Turn off to show the source."
+          resetAction={
+            !settings.latexRenderingEnabled ? (
+              <SettingResetButton
+                label="LaTeX rendering"
+                onClick={() => updateSettings({ latexRenderingEnabled: true })}
+              />
+            ) : null
+          }
+          control={
+            <Switch
+              checked={settings.latexRenderingEnabled}
+              onCheckedChange={(checked) =>
+                updateSettings({ latexRenderingEnabled: Boolean(checked) })
+              }
+              aria-label="Render LaTeX equations"
+            />
           }
         />
       </SettingsSection>

@@ -1761,6 +1761,12 @@ code {
 
 /* Chat markdown rendering */
 
+.chat-markdown .katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.15rem 0;
+}
+
 .chat-markdown > :first-child {
   margin-top: 0;
 }

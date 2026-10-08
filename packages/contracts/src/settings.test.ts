@@ -21,6 +21,19 @@ const decodeServerSettingsPatch = Schema.decodeUnknownSync(ServerSettingsPatch);
 const encodeServerSettings = Schema.encodeSync(ServerSettings);
 const decodeClaudeSettings = Schema.decodeUnknownSync(ClaudeSettings);
 
+describe("ClientSettings LaTeX rendering", () => {
+  it("renders math by default in new and existing settings", () => {
+    expect(decodeClientSettings({}).latexRenderingEnabled).toBe(true);
+    expect(decodeClientSettings({ chatWidth: "wide" }).latexRenderingEnabled).toBe(true);
+  });
+
+  it("preserves opting out when saving and loading preferences", () => {
+    const preference = { latexRenderingEnabled: false };
+    expect(decodeClientSettingsPatch(preference)).toEqual(preference);
+    expect(encodeClientSettings(decodeClientSettings(preference))).toMatchObject(preference);
+  });
+});
+
 describe("ServerSettings response streaming", () => {
   it("defaults to paragraph buffering", () => {
     expect(decodeServerSettings({}).responseStreamingMode).toBe("paragraph");

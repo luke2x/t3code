@@ -98,6 +98,7 @@ import type {
   Options as ReactMarkdownOptions,
 } from "react-markdown";
 import ReactMarkdown from "react-markdown";
+import { useChatMathPlugins } from "./chat/useChatMath";
 import { toHtml } from "hast-util-to-html";
 import { createIncrementalMarkdownPlugin } from "../markdown-incremental";
 import { defaultUrlTransform } from "react-markdown";
@@ -3325,6 +3326,8 @@ function ChatMarkdown({
   extraRemarkPlugins = EMPTY_REMARK_PLUGINS,
   ...props
 }: ChatMarkdownProps) {
+  const mathEnabled = useClientSettings((settings) => settings.latexRenderingEnabled);
+  const mathPlugins = useChatMathPlugins(mathEnabled, text);
   const {
     componentState,
     handleCopy,
@@ -3340,10 +3343,11 @@ function ChatMarkdown({
   const remarkPlugins = useMemo(
     () => [
       ...(lineBreaks ? CHAT_MARKDOWN_REMARK_PLUGINS_WITH_BREAKS : CHAT_MARKDOWN_REMARK_PLUGINS),
+      ...(mathPlugins?.remark ?? EMPTY_REMARK_PLUGINS),
       ...extraRemarkPlugins,
       ...(incrementalParsing ? [createIncrementalMarkdownPlugin()] : []),
     ],
-    [extraRemarkPlugins, incrementalParsing, lineBreaks],
+    [extraRemarkPlugins, incrementalParsing, lineBreaks, mathPlugins],
   );
 
   // react-markdown converts unparsed HTML nodes to text when skipHtml is false.
@@ -3363,7 +3367,11 @@ function ChatMarkdown({
       <ChatMarkdownRendererContext value={componentState}>
         <ReactMarkdown
           remarkPlugins={remarkPlugins}
-          rehypePlugins={parseRawHtml ? CHAT_MARKDOWN_REHYPE_PLUGINS : undefined}
+          rehypePlugins={
+            parseRawHtml
+              ? (mathPlugins?.rehype ?? CHAT_MARKDOWN_REHYPE_PLUGINS)
+              : (mathPlugins?.literalRehype ?? EMPTY_REMARK_PLUGINS)
+          }
           skipHtml={false}
           components={CHAT_MARKDOWN_COMPONENTS}
           urlTransform={markdownUrlTransform}
