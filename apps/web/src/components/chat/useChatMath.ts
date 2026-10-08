@@ -1,11 +1,33 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { LatexRenderingMode } from "@t3tools/contracts/settings";
+import type { Root, RootContent } from "mdast";
+import type { Plugin } from "unified";
+import { CHAT_MARKDOWN_REHYPE_PLUGINS } from "@t3tools/shared/markdownPipeline";
 
 type MathPlugins = typeof import("./markdownMath").CHAT_MATH_PLUGINS;
 type ActiveMathMode = Exclude<LatexRenderingMode, "off">;
 
 const loadedPlugins: Partial<Record<ActiveMathMode, MathPlugins>> = {};
 const loadingPlugins: Partial<Record<ActiveMathMode, Promise<MathPlugins>>> = {};
+
+function hasMathOpening(text: string): boolean {
+  if (!text.includes("\\(") && !text.includes("\\[") && !text.includes("$$")) return false;
+  for (const match of text.matchAll(/\\[([]|\$\$/g)) {
+    let preceding = match.index - 1;
+    while (text[preceding] === "\\") preceding--;
+    if ((match.index - preceding - 1) % 2 === 0) return true;
+  }
+  return false;
+}
+
+function hasMathOutsideCode(node: Root | RootContent, source: string): boolean {
+  if (node.type === "text") {
+    const start = node.position?.start.offset;
+    const end = node.position?.end.offset;
+    return start !== undefined && end !== undefined && hasMathOpening(source.slice(start, end));
+  }
+  return "children" in node && node.children.some((child) => hasMathOutsideCode(child, source));
+}
 
 export function loadChatMathPlugins(mode: ActiveMathMode = "on"): Promise<MathPlugins> {
   loadingPlugins[mode] ??= (
@@ -24,15 +46,25 @@ export function loadChatMathPlugins(mode: ActiveMathMode = "on"): Promise<MathPl
 
 /** Ordinary messages keep their pipeline. Readable mode does not load typesetting styles or fonts. */
 export function useChatMathPlugins(mode: LatexRenderingMode, text: string) {
-  const needed =
-    mode !== "off" && (text.includes("\\(") || text.includes("\\[") || text.includes("$$"));
+  const needed = mode !== "off" && hasMathOpening(text);
+  const parsedMath = useRef({ source: "", needed: false });
+  const probePlugins = useMemo(() => {
+    // Reuse ReactMarkdown's parse to exclude code without parsing the message a second time.
+    const probe: Plugin<[], Root> = () => (tree, file) => {
+      const source = String(file.value);
+      parsedMath.current = { source, needed: hasMathOutsideCode(tree, source) };
+    };
+    return { remark: [probe], rehype: CHAT_MARKDOWN_REHYPE_PLUGINS, literalRehype: [] };
+  }, []);
   const [loaded, setLoaded] = useState<{ mode: ActiveMathMode; plugins: MathPlugins }>();
   const plugins =
     mode !== "off"
       ? (loadedPlugins[mode] ?? (loaded?.mode === mode ? loaded.plugins : undefined))
       : undefined;
   useEffect(() => {
-    if (!needed || plugins) return;
+    if (!needed || plugins || parsedMath.current.source !== text || !parsedMath.current.needed) {
+      return;
+    }
     let cancelled = false;
     void loadChatMathPlugins(mode).then(
       (result) => {
@@ -45,6 +77,6 @@ export function useChatMathPlugins(mode: LatexRenderingMode, text: string) {
     return () => {
       cancelled = true;
     };
-  }, [mode, needed, plugins]);
-  return needed ? plugins : undefined;
+  }, [mode, needed, plugins, text]);
+  return needed ? (plugins ?? probePlugins) : undefined;
 }

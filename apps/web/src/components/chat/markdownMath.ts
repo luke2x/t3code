@@ -26,9 +26,7 @@ function rehypeCachedKatex({ output }: { output: MathOutput }): ReturnType<typeo
           code?.type !== "element" ||
           code.tagName !== "code" ||
           !Array.isArray(classes) ||
-          !classes.some((name) =>
-            ["language-math", "math-inline", "math-display"].includes(String(name)),
-          )
+          !classes.some((name) => ["math-inline", "math-display"].includes(String(name)))
         ) {
           visit(child);
           continue;

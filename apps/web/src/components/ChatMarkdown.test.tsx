@@ -104,6 +104,31 @@ function codeButton(renderer: ReactTestRenderer, label: string) {
 
 describe("ChatMarkdown math", () => {
   beforeAll(() => Promise.all([loadChatMathPlugins(), loadChatMathPlugins("readable")]));
+  it.each(["on", "readable"] as const)(
+    "keeps math fences as code in %s mode when an unrelated equation is added",
+    async (mode) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const container = document.createElement("div");
+      const root = createRoot(container);
+      const fence = "```math\nx^2\n```";
+      try {
+        mathPreference.latexRenderingMode = mode;
+        await act(async () => root.render(<ChatMarkdown cwd="/tmp/project" text={fence} />));
+        expect(container.querySelector("pre code")?.textContent).toContain("x^2");
+        await act(async () =>
+          root.render(<ChatMarkdown cwd="/tmp/project" text={`${fence}\n\n\\(y\\)`} />),
+        );
+        expect(container.querySelector("pre code")?.textContent).toContain("x^2");
+        const selector = mode === "on" ? ".katex" : ".math-readable-inline";
+        expect(container.querySelectorAll(selector)).toHaveLength(1);
+        expect(container.querySelector(".katex-display, .math-readable-display")).toBeNull();
+      } finally {
+        mathPreference.latexRenderingMode = "on";
+        await act(async () => root.unmount());
+        vi.unstubAllGlobals();
+      }
+    },
+  );
   it("skips visual HTML in readable mode without reusing it for typeset mode", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     const renderMath = vi.spyOn(katex, "renderToString");
