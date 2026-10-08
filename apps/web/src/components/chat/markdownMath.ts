@@ -9,9 +9,10 @@ type Element = Extract<RootContent, { type: "element" }>;
 
 const MAX_CACHED_EXPRESSIONS = 64;
 const expressionCache = new Map<string, RootContent[]>();
+type MathOutput = "htmlAndMathml" | "mathml";
 
-function rehypeCachedKatex(): ReturnType<typeof rehypeKatex> {
-  const render = rehypeKatex({ trust: false });
+function rehypeCachedKatex({ output }: { output: MathOutput }): ReturnType<typeof rehypeKatex> {
+  const render = rehypeKatex({ trust: false, output });
   return (tree, file) => {
     visit(tree);
 
@@ -36,7 +37,7 @@ function rehypeCachedKatex(): ReturnType<typeof rehypeKatex> {
           .map((node) => (node.type === "text" ? node.value : ""))
           .join("");
         const display = child.tagName === "pre" || classes.includes("math-display");
-        const key = `${display}\0${value}`;
+        const key = `${output}\0${display}\0${value}`;
         let result = expressionCache.get(key);
         if (!result) {
           const fragment: Root = { type: "root", children: [child] };
@@ -57,11 +58,14 @@ function rehypeCachedKatex(): ReturnType<typeof rehypeKatex> {
   };
 }
 
-const katexPlugins: PluggableList = [rehypeCachedKatex];
+export function createChatMathPlugins(output: MathOutput = "htmlAndMathml") {
+  const katexPlugins: PluggableList = [[rehypeCachedKatex, { output }]];
+  return {
+    remark: [remarkChatMath] satisfies PluggableList,
+    // Sanitize authored HTML before KaTeX generates its own MathML and styles.
+    rehype: [...CHAT_MARKDOWN_REHYPE_PLUGINS, ...katexPlugins],
+    literalRehype: katexPlugins,
+  };
+}
 
-export const CHAT_MATH_PLUGINS = {
-  remark: [remarkChatMath] satisfies PluggableList,
-  // Sanitize authored HTML before KaTeX generates its own MathML and styles.
-  rehype: [...CHAT_MARKDOWN_REHYPE_PLUGINS, ...katexPlugins],
-  literalRehype: katexPlugins,
-};
+export const CHAT_MATH_PLUGINS = createChatMathPlugins();

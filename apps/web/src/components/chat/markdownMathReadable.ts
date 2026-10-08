@@ -1,5 +1,5 @@
 import type rehypeKatex from "rehype-katex";
-import { CHAT_MATH_PLUGINS as renderedPlugins } from "./markdownMath";
+import { createChatMathPlugins } from "./markdownMath";
 
 type Root = Parameters<ReturnType<typeof rehypeKatex>>[0];
 type Node = Root["children"][number];
@@ -126,6 +126,7 @@ function rehypeReadableMath(): ReturnType<typeof rehypeKatex> {
         const math = findElement(node, "math");
         const annotation = findElement(node, "annotation");
         if (!math || !annotation) continue;
+        const displayMode = display || math.properties.display === "block";
         const source = annotation.children
           .map((child) => (child.type === "text" ? child.value : ""))
           .join("");
@@ -133,8 +134,8 @@ function rehypeReadableMath(): ReturnType<typeof rehypeKatex> {
           type: "element",
           tagName: "span",
           properties: {
-            className: [display ? "math-readable-display" : "math-readable-inline"],
-            dataMarkdownCopy: display ? `\\[\n${source}\n\\]` : `\\(${source}\\)`,
+            className: [displayMode ? "math-readable-display" : "math-readable-inline"],
+            dataMarkdownCopy: displayMode ? `\\[\n${source}\n\\]` : `\\(${source}\\)`,
           },
           children: [{ type: "text", value: readableMath(math).trim() }],
         };
@@ -143,8 +144,10 @@ function rehypeReadableMath(): ReturnType<typeof rehypeKatex> {
   };
 }
 
+const mathmlPlugins = createChatMathPlugins("mathml");
+
 export const CHAT_MATH_PLUGINS = {
-  ...renderedPlugins,
-  rehype: [...renderedPlugins.rehype, rehypeReadableMath],
-  literalRehype: [...renderedPlugins.literalRehype, rehypeReadableMath],
+  ...mathmlPlugins,
+  rehype: [...mathmlPlugins.rehype, rehypeReadableMath],
+  literalRehype: [...mathmlPlugins.literalRehype, rehypeReadableMath],
 };

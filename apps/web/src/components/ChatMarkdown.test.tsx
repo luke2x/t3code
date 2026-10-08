@@ -104,6 +104,36 @@ function codeButton(renderer: ReactTestRenderer, label: string) {
 
 describe("ChatMarkdown math", () => {
   beforeAll(() => Promise.all([loadChatMathPlugins(), loadChatMathPlugins("readable")]));
+  it("skips visual HTML in readable mode without reusing it for typeset mode", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const renderMath = vi.spyOn(katex, "renderToString");
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const text = String.raw`\(\frac{139}{251}\)`;
+    try {
+      mathPreference.latexRenderingMode = "readable";
+      await act(async () => root.render(<ChatMarkdown cwd="/tmp/project" text={text} />));
+      expect(container.querySelector(".math-readable-inline")?.textContent).toBe("139 / 251");
+      expect(renderMath).toHaveBeenCalledTimes(1);
+      expect(renderMath.mock.calls[0]?.[1]).toMatchObject({ output: "mathml", trust: false });
+
+      mathPreference.latexRenderingMode = "on";
+      await act(async () =>
+        root.render(<ChatMarkdown cwd="/tmp/project" text={text} parseRawHtml={false} />),
+      );
+      expect(container.querySelector(".katex-html")).not.toBeNull();
+      expect(renderMath).toHaveBeenCalledTimes(2);
+      expect(renderMath.mock.calls[1]?.[1]).toMatchObject({
+        output: "htmlAndMathml",
+        trust: false,
+      });
+    } finally {
+      mathPreference.latexRenderingMode = "on";
+      renderMath.mockRestore();
+      await act(async () => root.unmount());
+      vi.unstubAllGlobals();
+    }
+  });
   it.each([
     [String.raw`\frac{1}{2}`, "1 / 2"],
     [String.raw`x^2+b_{12}`, "x^2 + b[12]"],
