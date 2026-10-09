@@ -3410,6 +3410,14 @@ function ChatMarkdown({
     ],
     [extraRemarkPlugins, incrementalParsing, lineBreaks, mathPlugins],
   );
+  const rehypePlugins = useMemo(() => {
+    if (!mathPlugins) {
+      return parseRawHtml
+        ? CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS
+        : CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS;
+    }
+    return [...(parseRawHtml ? mathPlugins.rehype : mathPlugins.literalRehype), rehypeHeadingIds];
+  }, [mathPlugins, parseRawHtml]);
 
   // react-markdown converts unparsed HTML nodes to text when skipHtml is false.
   // Keep that behavior explicit because literal mode depends on escaping the
@@ -3428,11 +3436,7 @@ function ChatMarkdown({
       <ChatMarkdownRendererContext value={componentState}>
         <ReactMarkdown
           remarkPlugins={remarkPlugins}
-          rehypePlugins={
-            parseRawHtml
-              ? CHAT_MARKDOWN_RENDER_REHYPE_PLUGINS
-              : CHAT_MARKDOWN_LITERAL_HTML_REHYPE_PLUGINS
-          }
+          rehypePlugins={rehypePlugins}
           skipHtml={false}
           components={CHAT_MARKDOWN_COMPONENTS}
           urlTransform={markdownUrlTransform}

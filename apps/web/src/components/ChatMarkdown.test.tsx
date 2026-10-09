@@ -104,6 +104,56 @@ function codeButton(renderer: ReactTestRenderer, label: string) {
 
 describe("ChatMarkdown math", () => {
   beforeAll(() => Promise.all([loadChatMathPlugins(), loadChatMathPlugins("readable")]));
+  it.each([
+    { mode: "on", parseRawHtml: true },
+    { mode: "on", parseRawHtml: false },
+    { mode: "readable", parseRawHtml: true },
+    { mode: "readable", parseRawHtml: false },
+  ] as const)(
+    "keeps heading links and HTML handling with $mode math (parseRawHtml=$parseRawHtml)",
+    async ({ mode, parseRawHtml }) => {
+      vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+      const container = document.createElement("div");
+      document.body.append(container);
+      const root = createRoot(container);
+      const authoredHtml = '<b onclick="alert(1)">Formatted</b><script>alert(1)</script>';
+      const text = `[Equation](#equation)\n\n## Equation\n\n\\(\\frac{17}{29}\\)\n\n${authoredHtml}`;
+      const url = window.location.href;
+      try {
+        mathPreference.latexRenderingMode = mode;
+        await act(async () =>
+          root.render(<ChatMarkdown cwd="/tmp/project" text={text} parseRawHtml={parseRawHtml} />),
+        );
+        if (mode === "on") {
+          expect(container.querySelector("mfrac")?.textContent).toBe("1729");
+        } else {
+          expect(container.querySelector(".math-readable-inline")?.textContent).toBe("17 / 29");
+        }
+        expect(container.querySelector("script, [onclick]")).toBeNull();
+        if (parseRawHtml) {
+          expect(container.querySelector("b")?.textContent).toBe("Formatted");
+        } else {
+          expect(container.querySelector("b")).toBeNull();
+          expect(container.textContent).toContain(authoredHtml);
+        }
+
+        const heading = container.querySelector("h2")!;
+        expect(heading.id).toBe("user-content-equation");
+        const scrollIntoView = vi.fn();
+        heading.scrollIntoView = scrollIntoView;
+        const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+        container.querySelector("a")!.dispatchEvent(click);
+        expect(click.defaultPrevented).toBe(true);
+        expect(scrollIntoView.mock.contexts).toEqual([heading]);
+        expect(window.location.href).toBe(url);
+      } finally {
+        mathPreference.latexRenderingMode = "on";
+        await act(async () => root.unmount());
+        container.remove();
+        vi.unstubAllGlobals();
+      }
+    },
+  );
   it.each(["on", "readable"] as const)(
     "keeps math fences as code in %s mode when an unrelated equation is added",
     async (mode) => {
