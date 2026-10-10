@@ -95,6 +95,25 @@ export function historyStartMarkers(
   return providers.filter((provider) => historyStartDays.get(provider) === last);
 }
 
+/**
+ * The first period the hatch covers: the earliest start among providers that
+ * report a history boundary. A provider that reports none (OpenCode,
+ * Antigravity) paints its quiet days as zero and must not disable the hatch.
+ */
+export function historyHatchStartIndex(
+  providers: readonly UsageProviderKind[],
+  periods: readonly string[],
+  historyStartDays: ReadonlyMap<UsageProviderKind, string>,
+  resolution: "day" | "hour",
+): number {
+  if (resolution !== "day") return 0;
+  const bounded = providers.flatMap((provider) => {
+    const day = historyStartDays.get(provider);
+    return day === undefined ? [] : [Math.max(0, periods.indexOf(day))];
+  });
+  return bounded.length === 0 ? 0 : Math.min(...bounded);
+}
+
 /** Shape-preserving cubic tangents that cannot overshoot spiky usage data. */
 function monotoneTangents(points: readonly Point[]): readonly number[] {
   const count = points.length;
@@ -305,8 +324,13 @@ export function UsageProviderChart({
       ),
     [historyStartDays, periods, providers, resolution],
   );
-  // Periods before this index have no saved history for any provider drawn.
-  const historyStartIndex = providers.length === 0 ? 0 : Math.min(...historyStartIndexes.values());
+  // Periods before this index have no saved history for any bounded provider.
+  const historyStartIndex = historyHatchStartIndex(
+    providers,
+    periods,
+    historyStartDays,
+    resolution,
+  );
   const historyStartX = historyStartIndex * stepX;
   const seriesClip = (provider: UsageProviderKind) =>
     (historyStartIndexes.get(provider) ?? 0) > 0 ? `url(#${seriesClipId}-${provider})` : undefined;

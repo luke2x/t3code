@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   buildPeriodColumns,
   chartScale,
+  historyHatchStartIndex,
   historyStartMarkers,
   niceScale,
 } from "./UsageProviderChart";
@@ -141,6 +142,38 @@ describe("historyStartMarkers", () => {
   it("leaves earlier starts and providers without a boundary alone", () => {
     expect(historyStartMarkers(["codex"], days, new Map([["codex", "2026-08-01"]]))).toEqual([]);
     expect(historyStartMarkers(["codex"], days, new Map())).toEqual([]);
+  });
+});
+
+describe("historyHatchStartIndex", () => {
+  const days = ["2026-08-01", "2026-08-02", "2026-08-03"];
+
+  it("starts the hatch where the earliest bounded provider does", () => {
+    expect(
+      historyHatchStartIndex(["codex", "claude"], days, new Map([["claude", "2026-08-03"]]), "day"),
+    ).toBe(2);
+  });
+
+  it("is not cancelled by a provider that reports no boundary", () => {
+    // OpenCode and Antigravity report nothing; their quiet days read as zero.
+    expect(
+      historyHatchStartIndex(
+        ["codex", "opencode"],
+        days,
+        new Map([["codex", "2026-08-02"]]),
+        "day",
+      ),
+    ).toBe(1);
+  });
+
+  it("has no hatch when nothing is bounded or history reaches the window start", () => {
+    expect(historyHatchStartIndex(["opencode"], days, new Map(), "day")).toBe(0);
+    expect(historyHatchStartIndex(["codex"], days, new Map([["codex", "2026-08-01"]]), "day")).toBe(
+      0,
+    );
+    expect(
+      historyHatchStartIndex(["codex"], days, new Map([["codex", "2026-08-02"]]), "hour"),
+    ).toBe(0);
   });
 });
 
