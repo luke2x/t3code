@@ -9,6 +9,7 @@ import type {
 import {
   latestRootProviderFailure,
   latestUnheldRun,
+  runIdsWithWork,
   threadErrorSummary,
   usageLimitRunPresentedAsLatest,
 } from "@t3tools/shared/orchestrationV2ThreadError";
@@ -498,6 +499,15 @@ export interface ProjectionStoreV2Shape {
   readonly canStartQueuedRun: (
     threadId: ThreadId,
   ) => Effect.Effect<boolean, ProjectionStoreV2Error>;
+  /**
+   * Among `runIds`, those whose stored items include anything other than the
+   * wake record itself. Type-only read: item payloads stay in the store, so a
+   * usage-limit check can probe wake runs without materializing their output.
+   */
+  readonly getWakeRunIdsWithWork: (
+    threadId: ThreadId,
+    runIds: ReadonlyArray<RunId>,
+  ) => Effect.Effect<ReadonlyArray<RunId>, ProjectionStoreV2Error>;
   readonly getRecoveryThreadIds: (
     kind: ProjectionRecoveryKind,
   ) => Effect.Effect<ReadonlyArray<ThreadId>, ProjectionStoreV2Error>;
@@ -1397,8 +1407,17 @@ function secretRequestAsPendingInput(
   };
 }
 
+export interface ThreadShellFromProjectionOptions {
+  /**
+   * Wake runs with recorded work, when the projection's turn items do not
+   * cover the wakes. See `usageLimitRunPresentedAsLatest`.
+   */
+  readonly wakeRunIdsWithWork?: ReadonlySet<RunId>;
+}
+
 export function threadShellFromProjection(
   projection: OrchestrationV2ThreadProjection,
+  options?: ThreadShellFromProjectionOptions,
 ): OrchestrationV2ThreadShell {
   const providerSession =
     projection.providerSessions
@@ -1412,6 +1431,7 @@ export function threadShellFromProjection(
       projection.runs,
       projection.turnItems,
       providerSession?.lastError ?? null,
+      options?.wakeRunIdsWithWork,
     ) ?? latestUnheldRun(projection.runs);
   const activeRun =
     projection.runs
@@ -4726,6 +4746,23 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
         )
         .pipe(Effect.mapError(controlReadError(threadId)));
 
+    const getWakeRunIdsWithWork: ProjectionStoreV2Shape["getWakeRunIdsWithWork"] = (
+      threadId,
+      runIds,
+    ) =>
+      runIds.length === 0
+        ? Effect.succeed([] as ReadonlyArray<RunId>)
+        : sql<{ readonly run_id: string }>`
+          SELECT DISTINCT run_id FROM orchestration_v2_projection_turn_items
+          WHERE thread_id = ${threadId}
+            AND run_id IN (SELECT value FROM json_each(${encodeIdList(runIds)}))
+            -- Keep in step with the shared wake record types and the shell join.
+            AND type NOT IN ('notification', 'checkpoint', 'system_notice')
+        `.pipe(
+            Effect.map((rows) => rows.map((row) => RunId.make(row.run_id))),
+            Effect.mapError(controlReadError(threadId)),
+          );
+
     const getMessageCount: ProjectionStoreV2Shape["getMessageCount"] = (threadId) =>
       sql<{
         count: number;
@@ -5972,6 +6009,7 @@ export const layer: Layer.Layer<ProjectionStoreV2, never, SqlClient.SqlClient> =
       getCheckpointCaptureContext,
       getRunMessage,
       canStartQueuedRun,
+      getWakeRunIdsWithWork,
       getPendingNativeUserInputs,
       hasUnpairedRunInterruptRequest,
       getMessageCount,
@@ -6146,7 +6184,7 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                   thread.archivedAt === null &&
                   thread.settledOverride !== "settled",
               )
-              .map(threadShellFromProjection)
+              .map((projection) => threadShellFromProjection(projection))
               .filter(
                 (thread) =>
                   thread.status === "failed" &&
@@ -6483,6 +6521,15 @@ export const layerMemory: Layer.Layer<ProjectionStoreV2> = Layer.effect(
                 (run.status === "queued" && run.queueHeld === true),
             )
           );
+        }),
+      getWakeRunIdsWithWork: (threadId, runIds) =>
+        Effect.gen(function* () {
+          const projection = (yield* Ref.get(replayState)).projections.get(threadId);
+          if (projection === undefined) {
+            return yield* new ProjectionStoreThreadNotFoundError({ threadId });
+          }
+          const worked = runIdsWithWork(projection.turnItems);
+          return runIds.filter((runId) => worked.has(runId));
         }),
       getThreadProjection: (threadId) =>
         Effect.gen(function* () {

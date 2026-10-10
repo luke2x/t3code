@@ -92,8 +92,8 @@ function isCompletedWakeRun(run: OrchestrationV2Run): boolean {
 
 /**
  * Completed wake runs that ended after a failed run with no other run in
- * between, newest first. Only these can hide a usage limit, so a caller that
- * loads turn items by type loads every item of these runs before asking
+ * between, newest first. Only these can hide a usage limit, so a caller whose
+ * turn items do not cover the wakes probes these runs for work before asking
  * usageLimitBlockedRun.
  */
 export function completedWakeRunsAfterFailure(
@@ -114,24 +114,41 @@ export function completedWakeRunsAfterFailure(
 }
 
 /**
+ * Run ids with any loaded item other than the wake record itself. One pass:
+ * the limit check runs repeatedly per client render, and asking per wake would
+ * rescan every item.
+ */
+export function runIdsWithWork(
+  turnItems: ReadonlyArray<OrchestrationV2TurnItem>,
+): ReadonlySet<OrchestrationV2Run["id"]> {
+  const runIds = new Set<OrchestrationV2Run["id"]>();
+  for (const item of turnItems) {
+    if (item.runId !== null && !WAKE_RECORD_ITEM_TYPES.has(item.type)) runIds.add(item.runId);
+  }
+  return runIds;
+}
+
+/**
  * The latest run that actually started, when it stopped because the
  * subscription limit was reached. Queued messages after that run must stay
  * queued instead of being sent into the same limit.
  *
  * A limited provider answers a background wake with an empty turn, which
  * completes. Wakes that recorded nothing but the wake itself therefore do not
- * end the stop. `turnItems` must hold every item of those wake runs.
+ * end the stop. `turnItems` must hold every item of those wake runs, unless
+ * `wakeRunIdsWithWork` says which wakes did work. That lets a store-backed
+ * caller probe wake work by item type instead of loading wake item payloads.
  */
 export function usageLimitBlockedRun(
   runs: ReadonlyArray<OrchestrationV2Run>,
   turnItems: ReadonlyArray<OrchestrationV2TurnItem>,
   sessionError: string | null,
+  wakeRunIdsWithWork?: ReadonlySet<OrchestrationV2Run["id"]>,
 ): OrchestrationV2Run | null {
+  const worked = wakeRunIdsWithWork ?? runIdsWithWork(turnItems);
   const idleWakeRunIds = new Set<string>();
   for (const wake of completedWakeRunsAfterFailure(runs)) {
-    if (
-      turnItems.some((item) => item.runId === wake.id && !WAKE_RECORD_ITEM_TYPES.has(item.type))
-    ) {
+    if (worked.has(wake.id)) {
       break;
     }
     idleWakeRunIds.add(wake.id);
@@ -153,8 +170,9 @@ export function usageLimitRunPresentedAsLatest(
   runs: ReadonlyArray<OrchestrationV2Run>,
   turnItems: ReadonlyArray<OrchestrationV2TurnItem>,
   sessionError: string | null,
+  wakeRunIdsWithWork?: ReadonlySet<OrchestrationV2Run["id"]>,
 ): OrchestrationV2Run | null {
-  const blocked = usageLimitBlockedRun(runs, turnItems, sessionError);
+  const blocked = usageLimitBlockedRun(runs, turnItems, sessionError, wakeRunIdsWithWork);
   return blocked !== null && runs.some((run) => run.ordinal > blocked.ordinal) ? blocked : null;
 }
 
