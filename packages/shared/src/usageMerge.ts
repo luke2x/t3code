@@ -324,26 +324,24 @@ function firstBucketDay(summary: UsageSummary, source: UsageSource): string | un
 }
 
 /**
- * Per provider, the first day from which every one of its sources is covered,
- * when the days before that in the window have no saved history rather than
- * zero usage.
+ * Per provider, the first day with saved history when the days before it in
+ * the window have no saved history rather than zero usage.
  *
- * A source that cannot rule out older history, or whose saved history has no
- * record in the window to anchor to, withholds its provider's marker: a
- * boundary derived from the other sources would present days it never saw as
- * complete provider totals. A source covered past the window's start does not
- * narrow the provider's boundary.
+ * The earliest first-record day across the provider's sources is the boundary,
+ * so the chart keeps every day another source recorded. A source that cannot
+ * rule out older history, or whose saved history has no record in the window
+ * to anchor to, withholds its provider's marker instead.
  */
 export function historyStartDays(
   environments: readonly EnvironmentUsage[],
   sinceDay: string,
 ): ReadonlyMap<UsageProviderKind, string> {
-  const covered = new Map<UsageProviderKind, { day: string; complete: boolean }>();
+  const covered = new Map<UsageProviderKind, { start: string | undefined; complete: boolean }>();
   for (const { summary } of environments) {
     for (const source of summary.sources) {
       if (source.status === "missing") continue;
       const provider = source.fingerprint.provider;
-      const entry = covered.get(provider) ?? { day: sinceDay, complete: true };
+      const entry = covered.get(provider) ?? { start: undefined, complete: true };
       if (source.status !== "ok" || source.hasEarlierHistory === undefined) {
         // An older server, a partial scan, or an account API still refreshing.
         entry.complete = false;
@@ -352,15 +350,15 @@ export function historyStartDays(
         // have nothing to explain their silence.
         const first = firstBucketDay(summary, source);
         if (first === undefined) entry.complete = false;
-        else if (first > entry.day) entry.day = first;
+        else if (entry.start === undefined || first < entry.start) entry.start = first;
       }
       covered.set(provider, entry);
     }
   }
   const starts = new Map<UsageProviderKind, string>();
-  for (const [provider, { day, complete }] of covered) {
+  for (const [provider, { start, complete }] of covered) {
     // Usage on the window's first day leaves no gap to explain.
-    if (complete && day > sinceDay) starts.set(provider, day);
+    if (complete && start !== undefined && start > sinceDay) starts.set(provider, start);
   }
   return starts;
 }

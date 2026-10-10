@@ -844,13 +844,13 @@ describe("historyStartDays", () => {
     });
   });
 
-  it("moves the start to the last first-record day across a provider's sources", () => {
+  it("keeps the earliest first-record day across a provider's sources", () => {
     expect(
       read([
         { hasEarlierHistory: false, days: ["2026-08-03"] },
         { hasEarlierHistory: false, days: ["2026-08-20"] },
       ]),
-    ).toEqual({ claude: "2026-08-20" });
+    ).toEqual({ claude: "2026-08-03" });
   });
 
   it("withholds the start when a source has no record in the window", () => {
