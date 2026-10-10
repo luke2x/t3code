@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildPeriodColumns, chartScale, niceScale } from "./UsageProviderChart";
+import {
+  buildPeriodColumns,
+  chartScale,
+  historyStartMarkers,
+  niceScale,
+} from "./UsageProviderChart";
 import { providersWithUsage } from "./usageProviders";
 
 describe("chartScale", () => {
@@ -121,6 +126,21 @@ describe("buildPeriodColumns", () => {
       const sum = column.bands.reduce((running, band) => running + band.value, 0);
       expect(column.total).toBeCloseTo(sum, 9);
     }
+  });
+});
+
+describe("historyStartMarkers", () => {
+  const days = ["2026-08-01", "2026-08-02", "2026-08-03"];
+
+  it("marks a provider whose history starts on the final day", () => {
+    expect(
+      historyStartMarkers(["codex", "claude"], days, new Map([["claude", "2026-08-03"]])),
+    ).toEqual(["claude"]);
+  });
+
+  it("leaves earlier starts and providers without a boundary alone", () => {
+    expect(historyStartMarkers(["codex"], days, new Map([["codex", "2026-08-01"]]))).toEqual([]);
+    expect(historyStartMarkers(["codex"], days, new Map())).toEqual([]);
   });
 });
 

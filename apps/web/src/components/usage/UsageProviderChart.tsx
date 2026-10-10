@@ -81,6 +81,20 @@ export function buildPeriodColumns(
   });
 }
 
+/**
+ * Providers whose saved history begins on the final period, where a clipped
+ * line has no span left to show and its endpoint would disappear.
+ */
+export function historyStartMarkers(
+  providers: readonly UsageProviderKind[],
+  periods: readonly string[],
+  historyStartDays: ReadonlyMap<UsageProviderKind, string>,
+): readonly UsageProviderKind[] {
+  const last = periods[periods.length - 1];
+  if (last === undefined) return [];
+  return providers.filter((provider) => historyStartDays.get(provider) === last);
+}
+
 /** Shape-preserving cubic tangents that cannot overshoot spiky usage data. */
 function monotoneTangents(points: readonly Point[]): readonly number[] {
   const count = points.length;
@@ -484,6 +498,27 @@ export function UsageProviderChart({
                 vectorEffect="non-scaling-stroke"
               />
             ))}
+
+            {/* History that starts on the final period leaves no span to draw,
+                so the clip would hide the whole series. Keep its endpoint. */}
+            {(resolution === "day"
+              ? historyStartMarkers(providers, periods, historyStartDays)
+              : []
+            ).map((provider) => {
+              const value =
+                columns[columns.length - 1]?.bands[PROVIDER_ORDER.indexOf(provider)]?.value;
+              if (value === undefined) return null;
+              return (
+                <circle
+                  key={provider}
+                  cx={(periods.length - 1) * stepX}
+                  cy={toY(value)}
+                  r={4}
+                  className={seriesClassName(loadingProviders.has(provider))}
+                  fill={PROVIDER_PRESENTATION[provider].color}
+                />
+              );
+            })}
 
             {hoverIndex === null ? null : (
               <line
