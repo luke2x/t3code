@@ -1,6 +1,6 @@
 import { ProviderInstanceIcon } from "../chat/ProviderInstanceIcon";
 import type { UsageProviderKind } from "@t3tools/contracts";
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import type { DailyTotals, HourlyTotals } from "@t3tools/shared/usageMerge";
 import {
@@ -19,6 +19,7 @@ const VIEW_HEIGHT = 260;
 const TICK_COUNT = 4;
 const PLOT_TOP = 8;
 const NONE_LOADING: ReadonlySet<UsageProviderKind> = new Set();
+const FULL_HISTORY: ReadonlyMap<UsageProviderKind, string> = new Map();
 
 export type UsageChartMetric = "tokens" | "cost";
 
@@ -34,6 +35,11 @@ interface UsageProviderChartProps {
   readonly referenceTime: string | undefined;
   readonly resolution: "day" | "hour";
   readonly timeZone: string;
+  /**
+   * From `historyStartDays`. A provider's days before its entry are drawn as
+   * unknown rather than as zero usage.
+   */
+  readonly historyStartDays?: ReadonlyMap<UsageProviderKind, string>;
 }
 
 /** One day's per-provider values, shared by the paths and the hover readout. */
@@ -252,8 +258,11 @@ export function UsageProviderChart({
   referenceTime,
   resolution,
   timeZone,
+  historyStartDays = FULL_HISTORY,
 }: UsageProviderChartProps) {
   const periods = resolution === "hour" ? hours : days;
+  const hatchId = useId();
+  const seriesClipId = useId();
   const byPeriod = useMemo(
     () =>
       resolution === "hour"
@@ -271,6 +280,25 @@ export function UsageProviderChart({
     [byPeriod, loadingProviders, metric, periods, providers],
   );
   const toY = (value: number) => valueToY(value, scale.max);
+  // Each provider's periods before its index have no saved history.
+  const historyStartIndexes = useMemo(
+    () =>
+      new Map(
+        providers.map((provider) => {
+          const day = resolution === "day" ? historyStartDays.get(provider) : undefined;
+          return [provider, day === undefined ? 0 : Math.max(0, periods.indexOf(day))] as const;
+        }),
+      ),
+    [historyStartDays, periods, providers, resolution],
+  );
+  // Periods before this index have no saved history for any provider drawn.
+  const historyStartIndex = providers.length === 0 ? 0 : Math.min(...historyStartIndexes.values());
+  const historyStartX = historyStartIndex * stepX;
+  const seriesClip = (provider: UsageProviderKind) =>
+    (historyStartIndexes.get(provider) ?? 0) > 0 ? `url(#${seriesClipId}-${provider})` : undefined;
+  // A window that spans two years needs the year to tell its ends apart.
+  const withYear =
+    resolution === "day" && periods[0]?.slice(0, 4) !== periods[periods.length - 1]?.slice(0, 4);
   // The delay keeps a quick answer from flashing, as with the page's figures.
   const seriesClassName = (loading: boolean) =>
     cn("transition-opacity", loading && "opacity-40 delay-150");
@@ -334,7 +362,7 @@ export function UsageProviderChart({
   const hoveredColumn = hoverIndex === null ? undefined : columns[hoverIndex];
   const partial = providers.some((provider) => loadingProviders.has(provider));
   const formatPeriod = (period: string) =>
-    resolution === "hour" ? formatHourShort(period, timeZone) : formatDayShort(period);
+    resolution === "hour" ? formatHourShort(period, timeZone) : formatDayShort(period, withYear);
   const formatTooltipPeriod = (period: string) =>
     resolution === "hour" && referenceTime !== undefined
       ? formatRelativeHourShort(period, referenceTime, timeZone)
@@ -391,12 +419,55 @@ export function UsageProviderChart({
               );
             })}
 
+            {/* Clips so no series reads as zero where it has no saved history. */}
+            <defs>
+              {providers.map((provider) => {
+                const startX = (historyStartIndexes.get(provider) ?? 0) * stepX;
+                return startX > 0 ? (
+                  <clipPath key={provider} id={`${seriesClipId}-${provider}`}>
+                    <rect x={startX} y={0} width={VIEW_WIDTH - startX} height={VIEW_HEIGHT} />
+                  </clipPath>
+                ) : null;
+              })}
+            </defs>
+            {historyStartIndex > 0 ? (
+              <>
+                <defs>
+                  <pattern
+                    id={hatchId}
+                    width={8}
+                    height={8}
+                    patternUnits="userSpaceOnUse"
+                    patternTransform="rotate(45)"
+                  >
+                    <line
+                      x1={0}
+                      x2={0}
+                      y1={0}
+                      y2={8}
+                      stroke="currentColor"
+                      strokeWidth={2}
+                      className="text-border"
+                    />
+                  </pattern>
+                </defs>
+                <rect
+                  x={0}
+                  y={PLOT_TOP}
+                  width={historyStartX}
+                  height={VIEW_HEIGHT - PLOT_TOP}
+                  fill={`url(#${hatchId})`}
+                />
+              </>
+            ) : null}
+
             {/* Fills first, then every stroke, so no series covers another's line. */}
             {paths.map(({ provider, loading, area }) => (
               <path
                 key={provider}
                 d={area}
                 className={seriesClassName(loading)}
+                clipPath={seriesClip(provider)}
                 fill={PROVIDER_PRESENTATION[provider].color}
                 fillOpacity={0.12}
               />
@@ -406,6 +477,7 @@ export function UsageProviderChart({
                 key={provider}
                 d={line}
                 className={seriesClassName(loading)}
+                clipPath={seriesClip(provider)}
                 fill="none"
                 stroke={PROVIDER_PRESENTATION[provider].color}
                 strokeWidth={2}
@@ -437,44 +509,55 @@ export function UsageProviderChart({
               }}
             >
               <div className="mb-1 text-muted-foreground">{formatTooltipPeriod(hoveredPeriod)}</div>
-              {providers.map((provider) => {
-                const { label, driverKind } = PROVIDER_PRESENTATION[provider];
-                return (
-                  <div key={provider} className="flex items-center justify-between gap-3">
-                    <span className="flex items-center gap-1.5 text-muted-foreground">
-                      <ProviderInstanceIcon
-                        driverKind={driverKind}
-                        displayName={label}
-                        iconClassName="size-3"
-                      />
-                      {label}
-                    </span>
+              {hoverIndex !== null && hoverIndex < historyStartIndex ? (
+                <div className="text-foreground">No saved history</div>
+              ) : (
+                <>
+                  {providers.map((provider) => {
+                    const { label, driverKind } = PROVIDER_PRESENTATION[provider];
+                    const unknown =
+                      hoverIndex !== null && hoverIndex < (historyStartIndexes.get(provider) ?? 0);
+                    return (
+                      <div key={provider} className="flex items-center justify-between gap-3">
+                        <span className="flex items-center gap-1.5 text-muted-foreground">
+                          <ProviderInstanceIcon
+                            driverKind={driverKind}
+                            displayName={label}
+                            iconClassName="size-3"
+                          />
+                          {label}
+                        </span>
+                        <span
+                          className={cn(
+                            "tabular-nums",
+                            unknown || loadingProviders.has(provider)
+                              ? "text-muted-foreground"
+                              : "text-foreground",
+                          )}
+                        >
+                          {unknown
+                            ? "No history"
+                            : format(
+                                hoveredColumn?.bands.find((band) => band.provider === provider)
+                                  ?.value ?? 0,
+                              )}
+                        </span>
+                      </div>
+                    );
+                  })}
+                  <div className="mt-1 flex items-center justify-between gap-3 border-t border-border pt-1">
+                    <span className="text-muted-foreground">Total</span>
                     <span
                       className={cn(
                         "tabular-nums",
-                        loadingProviders.has(provider)
-                          ? "text-muted-foreground"
-                          : "text-foreground",
+                        partial ? "text-muted-foreground" : "text-foreground",
                       )}
                     >
-                      {format(
-                        hoveredColumn?.bands.find((band) => band.provider === provider)?.value ?? 0,
-                      )}
+                      {format(hoveredColumn?.total ?? 0)}
                     </span>
                   </div>
-                );
-              })}
-              <div className="mt-1 flex items-center justify-between gap-3 border-t border-border pt-1">
-                <span className="text-muted-foreground">Total</span>
-                <span
-                  className={cn(
-                    "tabular-nums",
-                    partial ? "text-muted-foreground" : "text-foreground",
-                  )}
-                >
-                  {format(hoveredColumn?.total ?? 0)}
-                </span>
-              </div>
+                </>
+              )}
             </div>
           )}
         </div>

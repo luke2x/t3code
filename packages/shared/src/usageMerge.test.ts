@@ -10,7 +10,12 @@ import {
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
-import { isModelCostUnknown, mergeUsage, type EnvironmentUsage } from "./usageMerge.ts";
+import {
+  historyStartDays,
+  isModelCostUnknown,
+  mergeUsage,
+  type EnvironmentUsage,
+} from "./usageMerge.ts";
 
 const decodeSummary = Schema.decodeUnknownSync(UsageSummary);
 const encodeSummary = Schema.encodeSync(UsageSummary);
@@ -784,5 +789,82 @@ describe("mergeUsage", () => {
     ]);
     expect(merged.daily).toHaveLength(1);
     expect(merged.daily[0]?.costUsd).toBe(10);
+  });
+});
+
+describe("historyStartDays", () => {
+  type SourceOverride = Partial<UsageSummary["sources"][number]> & {
+    readonly provider?: UsageProviderKind;
+  };
+  const read = (
+    sources: readonly SourceOverride[],
+    buckets: readonly UsageBucket[] = [bucket()],
+  ) => {
+    const base = summary(
+      buckets,
+      sources.map((source, index) => ({
+        provider: source.provider ?? "claude",
+        hostId: "mac",
+        homePath: `/home-${index}`,
+      })),
+    );
+    const starts = historyStartDays(
+      base.sources.map((entry, index) => {
+        const { provider: _provider, ...override } = sources[index] ?? {};
+        return { ...entry, ...override };
+      }),
+      mergeUsage(
+        [{ environmentId: "env-a" as EnvironmentId, label: "A", summary: base }],
+        USAGE_CONTRACT_VERSION,
+      ).daily,
+      base.sinceDay,
+    );
+    return Object.fromEntries(starts);
+  };
+  const on = (day: string, provider: UsageProviderKind = "claude") =>
+    bucket({ day: day as UsageDay, provider, sourcePath: undefined });
+
+  it("names a provider's first day with usage when it has no older history", () => {
+    expect(read([{ hasEarlierHistory: false }], [on("2026-08-09"), on("2026-08-07")])).toEqual({
+      claude: "2026-08-07",
+    });
+    expect(read([{ hasEarlierHistory: false }, { hasEarlierHistory: false }])).toEqual({
+      claude: "2026-08-07",
+    });
+  });
+
+  it("gives each provider its own start", () => {
+    expect(
+      read(
+        [
+          { provider: "codex", hasEarlierHistory: false },
+          { provider: "claude", hasEarlierHistory: false },
+          { provider: "grok", hasEarlierHistory: true },
+        ],
+        [on("2026-08-03", "codex"), on("2026-08-20", "claude"), on("2026-08-25", "grok")],
+      ),
+    ).toEqual({ codex: "2026-08-03", claude: "2026-08-20" });
+  });
+
+  it("treats the gap as zero usage when history reaches back past the window", () => {
+    expect(read([{ hasEarlierHistory: true }])).toEqual({});
+    expect(read([{ hasEarlierHistory: false }, { hasEarlierHistory: true }])).toEqual({});
+    // Usage on the window's first day leaves no gap to explain.
+    expect(read([{ hasEarlierHistory: false }], [on("2026-08-01"), on("2026-08-09")])).toEqual({});
+  });
+
+  it("makes no claim when a source cannot rule out older history", () => {
+    // An older server, or a provider that does not report it.
+    expect(read([{}])).toEqual({});
+    expect(read([{ hasEarlierHistory: false }, {}])).toEqual({});
+    expect(read([{ hasEarlierHistory: false, status: "partial" }])).toEqual({});
+    expect(read([])).toEqual({});
+    expect(read([{ hasEarlierHistory: false }], [])).toEqual({});
+  });
+
+  it("ignores a provider's sources that are not installed", () => {
+    expect(read([{ hasEarlierHistory: false }, { status: "missing" }])).toEqual({
+      claude: "2026-08-07",
+    });
   });
 });

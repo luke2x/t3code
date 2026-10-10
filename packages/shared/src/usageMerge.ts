@@ -314,6 +314,37 @@ function bucketTokens(bucket: UsageBucket): number {
   );
 }
 
+/**
+ * Per provider, the first day with usage when the days before it in the window
+ * have no saved history rather than zero usage. A provider is left out when its
+ * history reaches back past the window, when any of its sources that answered
+ * cannot rule that out, or when it has no usage in the window.
+ */
+export function historyStartDays(
+  sources: readonly UsageSource[],
+  daily: readonly DailyTotals[],
+  sinceDay: string,
+): ReadonlyMap<UsageProviderKind, string> {
+  const unknown = new Set<UsageProviderKind>();
+  const known = new Set<UsageProviderKind>();
+  for (const source of sources) {
+    if (source.status === "missing") continue;
+    const provider = source.fingerprint.provider;
+    if (source.status === "ok" && source.hasEarlierHistory === false) known.add(provider);
+    else unknown.add(provider);
+  }
+  const starts = new Map<UsageProviderKind, string>();
+  for (const { day, byProvider } of daily) {
+    for (const provider of byProvider.keys()) {
+      if (starts.has(provider) || unknown.has(provider) || !known.has(provider)) continue;
+      // Usage on the window's first day leaves no gap to explain.
+      if (day <= sinceDay) unknown.add(provider);
+      else starts.set(provider, day);
+    }
+  }
+  return starts;
+}
+
 export function isCompatibleUsageContractVersion(version: number, expected: number): boolean {
   return version >= USAGE_MERGE_COMPATIBLE_SINCE && version <= expected;
 }

@@ -144,6 +144,11 @@ export interface ProviderUsageScan {
     | null;
   /** Answered from a cache while a refresh runs. */
   readonly refreshing?: true;
+  /**
+   * Whether the source holds usage older than `windowStartMs`, which `files`
+   * leaves out. Omit when the source cannot tell.
+   */
+  readonly hasEarlierHistory?: boolean;
 }
 
 export interface ProviderUsageScanInput<Config> {

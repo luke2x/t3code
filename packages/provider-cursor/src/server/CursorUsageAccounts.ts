@@ -277,6 +277,7 @@ const make = Effect.gen(function* () {
         ? { status: "ok" }
         : { status: "partial", message: failureMessage }),
       ...(refreshing ? { refreshing: true } : {}),
+      hasEarlierHistory: cache.records.some((record) => record.timestampMs < windowStartMs),
     } satisfies ProviderUsageScan;
   });
 
