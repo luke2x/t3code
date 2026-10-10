@@ -53,11 +53,14 @@ export function latestExecutedRun(
 ): OrchestrationV2Run | null {
   let latest: OrchestrationV2Run | null = null;
   for (const run of runs) {
-    if (run.status === "queued") continue;
-    if (run.status === "cancelled" && run.startedAt === null) continue;
+    if (!hasExecuted(run)) continue;
     if (latest === null || runRanAfter(run, latest)) latest = run;
   }
   return latest;
+}
+
+function hasExecuted(run: OrchestrationV2Run): boolean {
+  return run.status !== "queued" && !(run.status === "cancelled" && run.startedAt === null);
 }
 
 /**
@@ -77,26 +80,74 @@ export function runRanAfter(
   return end(run) === end(other) ? run.ordinal > other.ordinal : end(run) > end(other);
 }
 
+const WAKE_RECORD_ITEM_TYPES: ReadonlySet<OrchestrationV2TurnItem["type"]> = new Set([
+  "notification",
+  "checkpoint",
+  "system_notice",
+]);
+
+function isCompletedWakeRun(run: OrchestrationV2Run): boolean {
+  return run.status === "completed" && run.workStartedAt !== undefined;
+}
+
+/**
+ * Completed wake runs that ended after a failed run with no other run in
+ * between, newest first. Only these can hide a usage limit, so a caller that
+ * loads turn items by type loads every item of these runs before asking
+ * usageLimitBlockedRun.
+ */
+export function completedWakeRunsAfterFailure(
+  runs: ReadonlyArray<OrchestrationV2Run>,
+): ReadonlyArray<OrchestrationV2Run> {
+  const latest = latestExecutedRun(runs);
+  if (latest === null || !isCompletedWakeRun(latest)) return [];
+  const wakes: Array<OrchestrationV2Run> = [];
+  const executed = runs
+    .filter(hasExecuted)
+    .sort((left, right) => (runRanAfter(left, right) ? -1 : 1));
+  for (const run of executed) {
+    if (run.status === "failed") return wakes;
+    if (!isCompletedWakeRun(run)) return [];
+    wakes.push(run);
+  }
+  return [];
+}
+
 /**
  * The latest run that actually started, when it stopped because the
  * subscription limit was reached. Queued messages after that run must stay
  * queued instead of being sent into the same limit.
+ *
+ * A limited provider answers a background wake with an empty turn, which
+ * completes. Wakes that recorded nothing but the wake itself therefore do not
+ * end the stop. `turnItems` must hold every item of those wake runs.
  */
 export function usageLimitBlockedRun(
   runs: ReadonlyArray<OrchestrationV2Run>,
   turnItems: ReadonlyArray<OrchestrationV2TurnItem>,
   sessionError: string | null,
 ): OrchestrationV2Run | null {
-  const executed = latestExecutedRun(runs);
+  const idleWakeRunIds = new Set<string>();
+  for (const wake of completedWakeRunsAfterFailure(runs)) {
+    if (
+      turnItems.some((item) => item.runId === wake.id && !WAKE_RECORD_ITEM_TYPES.has(item.type))
+    ) {
+      break;
+    }
+    idleWakeRunIds.add(wake.id);
+  }
+  const executed = latestExecutedRun(
+    idleWakeRunIds.size === 0 ? runs : runs.filter((run) => !idleWakeRunIds.has(run.id)),
+  );
   if (executed?.status !== "failed") return null;
   const summary = threadErrorSummary(latestRootProviderFailure(executed, turnItems), sessionError);
   return summary.lastErrorClass === "usage_limit" ? executed : null;
 }
 
 /**
- * That limited run, when newer runs were queued or cancelled before starting.
- * Callers that treat the highest-ordinal run as the thread outcome would
- * otherwise hide the limit.
+ * That limited run, when newer runs were queued, cancelled before starting, or
+ * wakes that did nothing. Callers that treat the highest-ordinal run as the
+ * thread outcome would otherwise hide the limit.
  */
 export function usageLimitRunPresentedAsLatest(
   runs: ReadonlyArray<OrchestrationV2Run>,

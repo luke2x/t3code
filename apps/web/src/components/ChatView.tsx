@@ -28,7 +28,7 @@ import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 import {
   latestExecutedRun,
-  latestRootProviderFailure,
+  usageLimitBlockedRun,
 } from "@t3tools/shared/orchestrationV2ThreadError";
 import type { UsageLimitSourceSnapshots } from "@t3tools/contracts";
 import {
@@ -2147,11 +2147,10 @@ export default function ChatView(props: ChatViewProps) {
     if (!isServerThread || serverProjection === null) return null;
     const run = latestExecutedRun(serverProjection.runs);
     if (run?.status === "interrupted") return run.id;
-    return run?.status === "failed" &&
-      serverRuntime?.lastErrorClass === "usage_limit" &&
-      latestRootProviderFailure(run, serverProjection.turnItems)?.class === "usage_limit"
-      ? run.id
-      : null;
+    if (serverRuntime?.lastErrorClass !== "usage_limit") return null;
+    return (
+      usageLimitBlockedRun(serverProjection.runs, serverProjection.turnItems, null)?.id ?? null
+    );
   }, [isServerThread, serverProjection, serverRuntime?.lastErrorClass]);
   const parentSubagentThreadId =
     activeThread?.lineage.relationshipToParent === "subagent"
