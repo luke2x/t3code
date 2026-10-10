@@ -496,6 +496,33 @@ describe("UsageService", () => {
     }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
   );
 
+  it.live("reports a covered Cursor window as having no missing history", () =>
+    Effect.gen(function* () {
+      const { settings, home } = yield* setup;
+      yield* writeCursorLogin(home);
+      yield* TestClock.setTime(CURSOR_NOW);
+      const cursor = makeFakeCursor();
+      // The account's only event is inside the window. The API still answered
+      // every earlier day of its covered range, so those days are known zero.
+      cursor.state.events = [{ timestampMs: CURSOR_NOW - 2 * HOUR_MS, outputTokens: 5 }];
+      yield* Effect.gen(function* () {
+        const service = yield* makeWithCursor(cursor.read);
+        const covered = yield* service.readSummary({ ...WINDOW, awaitRefresh: true });
+        assert.strictEqual(cursorSource(covered)?.hasEarlierHistory, true);
+
+        // A window reaching past the cache's start cannot make that claim.
+        const wide = yield* service.readSummary({
+          ...WINDOW,
+          sinceDay: UsageDay.make("2025-07-01"),
+          awaitRefresh: true,
+        });
+        assert.isUndefined(cursorSource(wide)?.hasEarlierHistory);
+      }).pipe(
+        Effect.provide(layerService({ prefix: "usage-service-cursor-coverage", home, settings })),
+      );
+    }).pipe(Effect.scoped, Effect.provide(TestClock.layer())),
+  );
+
   it.live("reports a failed Cursor refresh from its cache without refreshing", () =>
     Effect.gen(function* () {
       const { settings, home } = yield* setup;
@@ -1184,7 +1211,7 @@ describe("UsageService", () => {
 
         yield* Effect.gen(function* () {
           const { stateDir } = yield* ServerConfig.ServerConfig;
-          const cachePath = NodePath.join(stateDir, "usage-scan-cache-v5.json");
+          const cachePath = NodePath.join(stateDir, "usage-scan-cache-v6.json");
           const legacyPath = NodePath.join(stateDir, "usage-scan-cache.json");
           const first = yield* UsageService.make;
           yield* first.readSummary(WINDOW);
@@ -1489,6 +1516,66 @@ describe("UsageService", () => {
       // The provider cleans the transcript up; T3 still has what it read.
       yield* Effect.promise(() => NodeFSP.rm(transcript));
       assert.strictEqual(totalOutputTokens(yield* service.readSummary(year)), 5);
+    }).pipe(Effect.scoped),
+  );
+
+  it.live("migrates a v5 cache without dropping the older usage a v5 server kept", () =>
+    Effect.gen(function* () {
+      const { transcript, settings, home } = yield* setup;
+      const day = 24 * HOUR_MS;
+      const writtenAtMs = (yield* Clock.currentTimeMillis) - 300 * day;
+      const isoDay = (ms: number) =>
+        UsageDay.make(DateTime.formatIso(DateTime.makeUnsafe(ms)).slice(0, 10));
+      const year: UsageSummaryInput = {
+        timeZone: "UTC",
+        sinceDay: isoDay(writtenAtMs - 64 * day),
+        untilDay: isoDay(writtenAtMs + 300 * day),
+      };
+      yield* Effect.promise(async () => {
+        await NodeFSP.writeFile(
+          transcript,
+          claudeLine(1, 5).replace(
+            "2026-08-01T10:00:00Z",
+            DateTime.formatIso(DateTime.makeUnsafe(writtenAtMs)),
+          ),
+        );
+        await NodeFSP.utimes(transcript, writtenAtMs / 1000, writtenAtMs / 1000);
+      });
+      yield* Effect.gen(function* () {
+        const { stateDir } = yield* ServerConfig.ServerConfig;
+        const cachePath = NodePath.join(stateDir, "usage-scan-cache-v6.json");
+        const previousPath = NodePath.join(stateDir, "usage-scan-cache-v5.json");
+        const first = yield* UsageService.make;
+        assert.strictEqual(totalOutputTokens(yield* first.readSummary(year)), 5);
+        yield* first.awaitPersisted;
+
+        // What a v5 server would have left behind, with the transcript since
+        // deleted. A v5 server pruning its 92-day cache must keep this file.
+        const previous = yield* Effect.promise(async () => {
+          const document = decodeUnknownJsonString(await NodeFSP.readFile(cachePath, "utf8")) as {
+            readonly version?: unknown;
+          };
+          const text = encodeUnknownJsonString({ ...document, version: 5 });
+          await NodeFSP.writeFile(previousPath, text);
+          await NodeFSP.rm(cachePath);
+          await NodeFSP.rm(transcript);
+          return text;
+        });
+
+        const second = yield* UsageService.make;
+        assert.strictEqual(totalOutputTokens(yield* second.readSummary(year)), 5);
+        yield* second.awaitPersisted;
+        assert.strictEqual(
+          yield* Effect.promise(() => NodeFSP.readFile(previousPath, "utf8")),
+          previous,
+        );
+        const migrated = decodeUnknownJsonString(
+          yield* Effect.promise(() => NodeFSP.readFile(cachePath, "utf8")),
+        ) as { readonly version?: unknown };
+        assert.strictEqual(migrated.version, 6);
+      }).pipe(
+        Effect.provide(layerService({ prefix: "usage-service-v5-migration-test", home, settings })),
+      );
     }).pipe(Effect.scoped),
   );
 

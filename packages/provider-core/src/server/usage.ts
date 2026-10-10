@@ -145,8 +145,9 @@ export interface ProviderUsageScan {
   /** Answered from a cache while a refresh runs. */
   readonly refreshing?: true;
   /**
-   * Whether the source holds usage older than `windowStartMs`, which `files`
-   * leaves out. Omit when the source cannot tell.
+   * Whether the source's saved history reaches back to `windowStartMs`, so the
+   * days before its first record are known zero rather than missing. Omit when
+   * the source cannot tell.
    */
   readonly hasEarlierHistory?: boolean;
 }

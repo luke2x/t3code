@@ -69,6 +69,8 @@ const WINDOW_OPTIONS = [
   { value: 7, label: "7d", accessibilityLabel: "Past 7 days" },
   { value: 30, label: "30d", accessibilityLabel: "Past 30 days" },
   { value: 90, label: "90d", accessibilityLabel: "Past 90 days" },
+  { value: 180, label: "180d", accessibilityLabel: "Past 180 days" },
+  { value: 365, label: "1y", accessibilityLabel: "Past year" },
 ] as const;
 
 const METRIC_OPTIONS = [

@@ -182,9 +182,10 @@ export const UsageSource = Schema.Struct({
   distinctSessions: NonNegativeInt,
   message: Schema.NullOr(TrimmedNonEmptyString),
   /**
-   * Whether this source holds usage from before the window. `false` means the
-   * days ahead of its first record have no saved history, which is not the same
-   * as zero usage. Absent when the source cannot tell or the server predates it.
+   * Whether this source's saved history reaches back to the window's start, so
+   * the days before its first record are known zero rather than missing.
+   * `false` means its history is only saved from its first record on; absent
+   * when the source cannot tell or the server predates it.
    */
   hasEarlierHistory: Schema.optionalKey(Schema.Boolean),
   /** An action the client can offer to make this source available. */

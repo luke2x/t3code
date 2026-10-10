@@ -314,33 +314,53 @@ function bucketTokens(bucket: UsageBucket): number {
   );
 }
 
+/** The first day `summary` reports usage for one source. */
+function firstBucketDay(summary: UsageSummary, source: UsageSource): string | undefined {
+  let first: string | undefined;
+  for (const bucket of bucketsForSource(summary, source)) {
+    if (first === undefined || bucket.day < first) first = bucket.day;
+  }
+  return first;
+}
+
 /**
- * Per provider, the first day with usage when the days before it in the window
- * have no saved history rather than zero usage. A provider is left out when its
- * history reaches back past the window, when any of its sources that answered
- * cannot rule that out, or when it has no usage in the window.
+ * Per provider, the first day from which every one of its sources is covered,
+ * when the days before that in the window have no saved history rather than
+ * zero usage.
+ *
+ * A source that cannot rule out older history, or whose saved history has no
+ * record in the window to anchor to, withholds its provider's marker: a
+ * boundary derived from the other sources would present days it never saw as
+ * complete provider totals. A source covered past the window's start does not
+ * narrow the provider's boundary.
  */
 export function historyStartDays(
-  sources: readonly UsageSource[],
-  daily: readonly DailyTotals[],
+  environments: readonly EnvironmentUsage[],
   sinceDay: string,
 ): ReadonlyMap<UsageProviderKind, string> {
-  const unknown = new Set<UsageProviderKind>();
-  const known = new Set<UsageProviderKind>();
-  for (const source of sources) {
-    if (source.status === "missing") continue;
-    const provider = source.fingerprint.provider;
-    if (source.status === "ok" && source.hasEarlierHistory === false) known.add(provider);
-    else unknown.add(provider);
+  const covered = new Map<UsageProviderKind, { day: string; complete: boolean }>();
+  for (const { summary } of environments) {
+    for (const source of summary.sources) {
+      if (source.status === "missing") continue;
+      const provider = source.fingerprint.provider;
+      const entry = covered.get(provider) ?? { day: sinceDay, complete: true };
+      if (source.status !== "ok" || source.hasEarlierHistory === undefined) {
+        // An older server, a partial scan, or an account API still refreshing.
+        entry.complete = false;
+      } else if (!source.hasEarlierHistory) {
+        // Saved history starts at its first record, so the days before that
+        // have nothing to explain their silence.
+        const first = firstBucketDay(summary, source);
+        if (first === undefined) entry.complete = false;
+        else if (first > entry.day) entry.day = first;
+      }
+      covered.set(provider, entry);
+    }
   }
   const starts = new Map<UsageProviderKind, string>();
-  for (const { day, byProvider } of daily) {
-    for (const provider of byProvider.keys()) {
-      if (starts.has(provider) || unknown.has(provider) || !known.has(provider)) continue;
-      // Usage on the window's first day leaves no gap to explain.
-      if (day <= sinceDay) unknown.add(provider);
-      else starts.set(provider, day);
-    }
+  for (const [provider, { day, complete }] of covered) {
+    // Usage on the window's first day leaves no gap to explain.
+    if (complete && day > sinceDay) starts.set(provider, day);
   }
   return starts;
 }

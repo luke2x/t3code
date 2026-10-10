@@ -216,28 +216,17 @@ export function UsagePage() {
   const withYear = shownWindow.sinceDay.slice(0, 4) !== shownWindow.untilDay.slice(0, 4);
   const historyStarts = useMemo(
     () =>
-      // An environment still scanning may yet report older history.
-      shownHourly || showingKept || isPartial
+      // A source still answering may yet report older history, so no boundary
+      // is drawn while any environment or slow source is updating.
+      shownHourly || loading.partial
         ? NO_HISTORY_STARTS
         : historyStartDays(
-            selectedEnvironments.flatMap(
-              (environment) =>
-                environment.summary?.sources.filter(
-                  (source) => !hiddenProviders.has(source.fingerprint.provider),
-                ) ?? [],
+            selectedEnvironments.flatMap(({ environmentId, label, summary }) =>
+              summary === null ? [] : [{ environmentId, label, summary }],
             ),
-            merged.daily,
             shownWindow.sinceDay,
           ),
-    [
-      shownHourly,
-      showingKept,
-      isPartial,
-      selectedEnvironments,
-      hiddenProviders,
-      merged.daily,
-      shownWindow.sinceDay,
-    ],
+    [shownHourly, loading.partial, selectedEnvironments, shownWindow.sinceDay],
   );
   const hours = useMemo(
     () =>
