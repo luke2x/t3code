@@ -11,6 +11,7 @@ export function ThreadMarkdownVideo(props: {
   readonly source: MediaVideoPreviewSource;
   readonly thumbnailVisible?: boolean;
   readonly onPlaybackStart?: () => void;
+  readonly borderRadius?: number;
 }) {
   const { source } = props;
   const visible = useThreadMediaVisible(props.thumbnailVisible);
@@ -40,6 +41,7 @@ export function ThreadMarkdownVideo(props: {
       onPlaybackStart={props.onPlaybackStart}
       unavailable={"resource" in source && asset._tag === "Failure"}
       actionsSource={source.actionsSource}
+      borderRadius={props.borderRadius}
     />
   );
 }
