@@ -8466,7 +8466,8 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
             });
             // Closing ends the CLI process and abandons the held tool call
             // without answering it. Not interrupt: the held CLI may never ack it.
-            yield* liveQuery.query.close.pipe(Effect.ignore);
+            // Closing can wait for SDK teardown; do not hold the frame lock while it finishes.
+            yield* liveQuery.query.close.pipe(Effect.ignore, Effect.forkIn(sessionScope));
             return;
           }
           yield* trackClaudeGoal({ nativeThreadId: liveQuery.nativeThreadId, context, message });
@@ -10268,6 +10269,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
           let replacementPrep:
             | {
                 readonly appendSystemPromptFileText: string | undefined;
+                readonly resolvedTurnCwd: string | null;
                 readonly launchArgSettings: ClaudeSdkSettings | undefined;
                 readonly toolSearchOverride: "true" | undefined;
                 readonly subagentPromptCacheTtl: typeof ClaudePromptCacheTtl.Type | undefined;
@@ -10352,7 +10354,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                   settings: adapterOptions.settings,
                   ...(prep.launchArgSettings === undefined
                     ? {}
-                    : { sdkSettings: prep.launchArgSettings }),
+                    : { sdkSettings: claudeSdkLaunchArgSettings(prep.launchArgSettings) }),
                   ...(prep.toolSearchOverride === undefined
                     ? {}
                     : { toolSearchOverride: prep.toolSearchOverride }),
@@ -10380,6 +10382,7 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                       }),
                   canUseTool,
                   onUserDialog,
+                  onElicitation,
                   supportedDialogKinds: ["resume_return"],
                   ...(prep.appendSystemPromptFileText === undefined
                     ? {}
@@ -10419,6 +10422,12 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 });
                 const closed = yield* Deferred.make<void, never>();
                 const context: ClaudeLiveQueryContext = {
+                  taskOutputRoot: claudeTaskOutputRoot(
+                    adapterOptions.environment,
+                    path,
+                    prep.resolvedTurnCwd,
+                    hostPlatform,
+                  ),
                   queryPolicy,
                   nativeThreadId,
                   query: querySession,
@@ -10510,6 +10519,9 @@ export const makeClaudeAdapterV2 = Effect.fn("makeClaudeAdapterV2")(function* (
                 path,
               });
               replacementPrep = {
+                resolvedTurnCwd: yield* fileSystem
+                  .realPath(decision.turnInput.runtimePolicy.cwd ?? ".")
+                  .pipe(Effect.orElseSucceed(() => decision.turnInput.runtimePolicy.cwd)),
                 launchArgSettings,
                 toolSearchOverride: yield* resolveToolSearchOverride(
                   decision.turnInput.runtimePolicy.cwd,
