@@ -1,3 +1,7 @@
+import {
+  trimOptionalString as trimmed,
+  normalizeRefName,
+} from "@t3tools/source-control-core/server/pullRequestUtils";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
 import * as Result from "effect/Result";
@@ -138,17 +142,7 @@ export interface AzureDevOpsPullRequest {
   readonly autoMergeMethod?: PullRequestMergeMethod;
 }
 
-function trimmed(value: string | null | undefined): string | null {
-  const text = value?.trim() ?? "";
-  return text.length > 0 ? text : null;
-}
-
-function normalizeRefName(refName: string): string {
-  return refName.trim().replace(/^refs\/heads\//, "");
-}
-
-/** A login has to compare against the connectionData account, which is an email. */
-
+/** Logins must match the email from the connectionData account. */
 function toActor(raw: Schema.Schema.Type<typeof RawIdentitySchema> | null | undefined) {
   const login = trimmed(raw?.uniqueName) ?? trimmed(raw?.displayName);
   return login === null
